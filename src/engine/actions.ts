@@ -1,13 +1,30 @@
-import { getLocation, type EventId, type JobId, type UpgradeId } from '@/content';
+import {
+  DEFAULT_NAME,
+  getLocation,
+  loanSignedLog,
+  MAX_NAME_LENGTH,
+  type ActivityId,
+  type CharacterId,
+  type EventId,
+  type JobId,
+  type UpgradeId,
+} from '@/content';
 import { buyUpgrade, payLoan } from './economy';
 import { resolveEvent } from './events';
-import { acceptJob, tickJourney } from './journey';
+import { acceptJob, startActivity, tickJourney } from './journey';
 import { barAt } from './map';
-import { createInitialState, type GameState } from './state';
+import { appendLog, createInitialState, type GameState } from './state';
+import { fillFromState } from './text';
 
 export type Action =
+  | { readonly type: 'BEGIN_GAME'; readonly name: string }
   | { readonly type: 'TICK'; readonly deltaMs: number }
   | { readonly type: 'ACCEPT_JOB'; readonly jobId: JobId }
+  | {
+      readonly type: 'START_ACTIVITY';
+      readonly activityId: ActivityId;
+      readonly target?: CharacterId | null;
+    }
   | { readonly type: 'RESOLVE_EVENT'; readonly eventId: EventId; readonly choiceId: string }
   | { readonly type: 'PAY_LOAN'; readonly amount: number }
   | { readonly type: 'BUY_UPGRADE'; readonly upgradeId: UpgradeId }
@@ -23,12 +40,19 @@ export type Action =
 export function reduce(state: GameState, action: Action): GameState {
   if (action.type === 'NEW_GAME') return createInitialState();
   if (state.phase === 'gameOver') return state;
+  if (state.phase === 'intro') {
+    return action.type === 'BEGIN_GAME' ? beginGame(state, action.name) : state;
+  }
 
   switch (action.type) {
+    case 'BEGIN_GAME':
+      return state;
     case 'TICK':
       return tickJourney(state, action.deltaMs);
     case 'ACCEPT_JOB':
       return acceptJob(state, action.jobId);
+    case 'START_ACTIVITY':
+      return startActivity(state, action.activityId, action.target ?? null);
     case 'RESOLVE_EVENT':
       return resolveEvent(state, action.eventId, action.choiceId);
     case 'PAY_LOAN':
@@ -40,6 +64,21 @@ export function reduce(state: GameState, action: Action): GameState {
     case 'LEAVE_BAR':
       return leaveBar(state);
   }
+}
+
+/** Trims and collapses whitespace, caps the length, and falls back to the default name. */
+export function normalizeName(raw: string): string {
+  const name = raw.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME_LENGTH).trim();
+  return name.length > 0 ? name : DEFAULT_NAME;
+}
+
+function beginGame(state: GameState, rawName: string): GameState {
+  const next: GameState = {
+    ...state,
+    phase: 'station',
+    player: { name: normalizeName(rawName) },
+  };
+  return appendLog(next, fillFromState(next, loanSignedLog));
 }
 
 function enterBar(state: GameState): GameState {

@@ -2,28 +2,28 @@ import { useState } from 'react';
 import { getLocation } from '@/content';
 import {
   availableBulletins,
-  availableEvents,
   availableJobs,
   availableUpgrades,
   barAt,
+  clampPayment,
+  estimateJourney,
   formatDuration,
-  journeyDurationDays,
+  monthlyInterest,
   monthsCrossed,
+  paymentWarning,
 } from '@/engine';
-import { EventCard } from '../components/EventCard';
 import { Panel } from '../components/Panel';
-import { formatMoney } from '../format';
+import { PeoplePanel } from '../components/PeoplePanel';
+import { formatCountdown, formatMoney, formatPercent } from '../format';
 import { useGame } from '../GameContext';
 import { MapScreen } from './MapScreen';
 
 export function StationScreen() {
   const { state, dispatch } = useGame();
   const [showMap, setShowMap] = useState(false);
-  const [payment, setPayment] = useState(500);
 
   const here = getLocation(state.location);
   const bar = barAt(state.location);
-  const events = availableEvents(state);
   const bulletins = availableBulletins(state);
   const jobs = availableJobs(state);
   const upgrades = availableUpgrades(state);
@@ -50,13 +50,7 @@ export function StationScreen() {
 
       {showMap && <MapScreen />}
 
-      {events.length > 0 && (
-        <Panel title="People">
-          {events.map((event) => (
-            <EventCard key={event.id} event={event} />
-          ))}
-        </Panel>
-      )}
+      <PeoplePanel emptyText="Nobody here knows you." />
 
       {bulletins.length > 0 && (
         <Panel title="Bulletins">
@@ -72,8 +66,8 @@ export function StationScreen() {
       <Panel title="Freight board">
         {jobs.length === 0 && <p className="muted">No contracts are posted right now.</p>}
         {jobs.map((job) => {
-          const days = journeyDurationDays(job, state.ship);
-          const paymentsEnRoute = monthsCrossed(state.day, state.day + days);
+          const estimate = estimateJourney(job, state);
+          const paymentsEnRoute = monthsCrossed(state.day, state.day + estimate.days);
           return (
             <article key={job.id} className="job">
               <h3 className="job__title">{job.title}</h3>
@@ -82,7 +76,10 @@ export function StationScreen() {
                 <dt>To</dt>
                 <dd>{getLocation(job.to).name}</dd>
                 <dt>Travel</dt>
-                <dd>{formatDuration(days)}</dd>
+                <dd>
+                  {formatDuration(estimate.days)} out there · about{' '}
+                  {formatCountdown(estimate.realMs)} at the console
+                </dd>
                 <dt>Pay on delivery</dt>
                 <dd>{formatMoney(job.pay)}</dd>
                 <dt>Loan drafts en route</dt>
@@ -115,35 +112,93 @@ export function StationScreen() {
         ))}
       </Panel>
 
-      <Panel title="Bank">
-        <dl className="facts">
-          <dt>Outstanding</dt>
-          <dd>{formatMoney(state.loan.principal)}</dd>
-          <dt>Monthly draft</dt>
-          <dd>{formatMoney(state.loan.monthlyPayment)}</dd>
-        </dl>
+      <BankPanel />
+    </>
+  );
+}
+
+const WARNING_TEXT = {
+  everything:
+    'This is every credit you have. The next monthly draft will bounce unless you earn before the first.',
+  belowDraft: 'This leaves less than one monthly draft in your account.',
+} as const;
+
+function BankPanel() {
+  const { state, dispatch } = useGame();
+  const [amountText, setAmountText] = useState('500');
+  const [confirming, setConfirming] = useState(false);
+
+  const amount = Number(amountText);
+  const payment = clampPayment(state, amount);
+  const warning = paymentWarning(state, amount);
+  const paidOff = state.loan.principal <= 0;
+
+  const changeAmount = (value: string) => {
+    setAmountText(value);
+    setConfirming(false);
+  };
+
+  const submit = () => {
+    if (payment <= 0) return;
+    if (warning !== null && !confirming) {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
+    dispatch({ type: 'PAY_LOAN', amount: payment });
+  };
+
+  return (
+    <Panel title="Bank">
+      <dl className="facts">
+        <dt>Outstanding</dt>
+        <dd>{formatMoney(state.loan.principal)}</dd>
+        <dt>Interest</dt>
+        <dd>
+          {formatPercent(state.loan.monthlyInterestRate, 1)} per month ·{' '}
+          {formatMoney(monthlyInterest(state.loan))} next month
+        </dd>
+        <dt>Monthly draft</dt>
+        <dd>{formatMoney(state.loan.monthlyPayment)}</dd>
+      </dl>
+      {paidOff ? (
+        <p className="muted">Paid in full. The {state.ship.name} is yours.</p>
+      ) : (
         <form
           className="inline-form"
-          onSubmit={(submit) => {
-            submit.preventDefault();
-            dispatch({ type: 'PAY_LOAN', amount: payment });
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
           }}
         >
           <label>
             Extra payment
             <input
               type="number"
+              inputMode="numeric"
               min={1}
-              step={100}
-              value={payment}
-              onChange={(change) => setPayment(Number(change.target.value))}
+              step={1}
+              value={amountText}
+              onChange={(change) => changeAmount(change.target.value)}
             />
           </label>
-          <button type="submit" disabled={payment <= 0 || state.money <= 0}>
-            Pay
+          <button
+            type="submit"
+            className={confirming ? 'button--danger' : undefined}
+            disabled={payment <= 0}
+          >
+            {confirming ? `Pay ${formatMoney(payment)} anyway` : 'Pay'}
           </button>
+          {payment > 0 && payment !== Math.floor(amount) && (
+            <span className="muted">You will pay {formatMoney(payment)}, all you can.</span>
+          )}
+          {confirming && warning !== null && (
+            <span className="warning" role="alert">
+              {WARNING_TEXT[warning]}
+            </span>
+          )}
         </form>
-      </Panel>
-    </>
+      )}
+    </Panel>
   );
 }

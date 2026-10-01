@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ActivityIds,
+  allActivities,
   allBulletins,
   allCharacters,
   allEvents,
@@ -8,11 +10,18 @@ import {
   allUpgrades,
   BulletinIds,
   CharacterIds,
+  CLOSE_ONE_ROLES,
   content,
   EventIds,
   FlagIds,
+  howToPlay,
+  introPages,
   JobIds,
+  journalPages,
+  JOURNEY_EFFECT_KINDS,
+  loanSignedLog,
   LocationIds,
+  MAP_BOUNDS,
   UpgradeIds,
   type Condition,
   type Effect,
@@ -25,6 +34,9 @@ const characterIds = new Set<string>(Object.values(CharacterIds));
 const eventIds = new Set<string>(Object.values(EventIds));
 const upgradeIds = new Set<string>(Object.values(UpgradeIds));
 const flagIds = new Set<string>(Object.values(FlagIds));
+const journeyEffectKinds = new Set<string>(JOURNEY_EFFECT_KINDS);
+
+const KNOWN_TOKENS = new Set(['name', 'ship', 'target']);
 
 function duplicates(ids: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -34,6 +46,11 @@ function duplicates(ids: readonly string[]): string[] {
     seen.add(id);
   }
   return repeated;
+}
+
+/** Every `{token}` used anywhere inside a content definition. */
+function tokensIn(value: unknown): string[] {
+  return [...JSON.stringify(value).matchAll(/\{([a-zA-Z]+)\}/g)].map((match) => match[1]!);
 }
 
 /** Day a location (or the location a bar belongs to) first appears on the map. */
@@ -52,9 +69,17 @@ function checkConditions(conditions: readonly Condition[] | undefined, where: st
         expect(flagIds, `${where}: unknown flag ${condition.flag}`).toContain(condition.flag);
         break;
       case 'relationshipAtLeast':
+      case 'relationshipAtMost':
         expect(characterIds, `${where}: unknown character`).toContain(condition.character);
+        expect(condition.value).toBeGreaterThanOrEqual(0);
+        expect(condition.value).toBeLessThanOrEqual(100);
+        break;
+      case 'daysSinceContactAtLeast':
+        expect(characterIds, `${where}: unknown character`).toContain(condition.character);
+        expect(condition.days, `${where}: silence must be positive`).toBeGreaterThan(0);
         break;
       case 'eventCompleted':
+      case 'eventNotCompleted':
         expect(eventIds, `${where}: unknown event ${condition.event}`).toContain(condition.event);
         break;
       case 'dateBetween':
@@ -65,6 +90,10 @@ function checkConditions(conditions: readonly Condition[] | undefined, where: st
       case 'moneyAtLeast':
         expect(condition.amount, `${where}: moneyAtLeast must be positive`).toBeGreaterThan(0);
         break;
+      case 'anyOf':
+        expect(condition.conditions.length, `${where}: empty anyOf`).toBeGreaterThan(0);
+        checkConditions(condition.conditions, `${where}/anyOf`);
+        break;
     }
   }
 }
@@ -74,6 +103,7 @@ function checkEffects(effects: readonly Effect[], where: string): void {
     switch (effect.kind) {
       case 'relationship':
         expect(characterIds, `${where}: unknown character`).toContain(effect.character);
+        expect(effect.delta, `${where}: relationship effect of zero`).not.toBe(0);
         break;
       case 'setFlag':
       case 'clearFlag':
@@ -81,6 +111,19 @@ function checkEffects(effects: readonly Effect[], where: string): void {
         break;
       case 'money':
         expect(effect.delta, `${where}: money effect of zero`).not.toBe(0);
+        break;
+      case 'relocate':
+        expect(characterIds, `${where}: unknown character`).toContain(effect.character);
+        if (effect.to !== null) expect(locationIds, `${where}: unknown place`).toContain(effect.to);
+        break;
+      case 'shortenJourney':
+        expect(effect.fraction).toBeGreaterThan(0);
+        expect(effect.fraction).toBeLessThanOrEqual(1);
+        break;
+      case 'deliveryBonus':
+        expect(effect.amount).toBeGreaterThan(0);
+        break;
+      case 'journal':
         break;
     }
   }
@@ -104,12 +147,39 @@ describe('content registries', () => {
       { defs: allEvents, ids: EventIds },
       { defs: allUpgrades, ids: UpgradeIds },
       { defs: allBulletins, ids: BulletinIds },
+      { defs: allActivities, ids: ActivityIds },
     ] as const;
 
     for (const { defs, ids } of kinds) {
       const defIds = defs.map((def) => def.id);
       expect(duplicates(defIds)).toEqual([]);
       expect([...defIds].sort()).toEqual([...Object.values(ids)].sort());
+    }
+  });
+
+  it('only use template tokens the engine knows how to fill', () => {
+    const everything = [
+      ...allEvents,
+      ...allJobs,
+      ...allLocations,
+      ...allCharacters,
+      ...allBulletins,
+      ...allUpgrades,
+      introPages,
+      howToPlay,
+      loanSignedLog,
+      journalPages,
+    ];
+    for (const token of everything.flatMap(tokensIn)) {
+      expect(KNOWN_TOKENS, `unknown template token {${token}}`).toContain(token);
+    }
+    for (const activity of allActivities) {
+      for (const token of tokensIn(activity)) {
+        expect(KNOWN_TOKENS).toContain(token);
+        if (token === 'target') {
+          expect(activity.target, `${activity.id} uses {target} without a target`).toBeDefined();
+        }
+      }
     }
   });
 });
@@ -127,14 +197,54 @@ describe('locations', () => {
       }
     }
   });
+
+  it('sit inside the map bounds with unique catalogue names', () => {
+    const catalogNames: string[] = [];
+    for (const location of allLocations) {
+      expect(location.position.x).toBeGreaterThanOrEqual(MAP_BOUNDS.minX);
+      expect(location.position.x).toBeLessThanOrEqual(MAP_BOUNDS.maxX);
+      expect(location.position.y).toBeGreaterThanOrEqual(MAP_BOUNDS.minY);
+      expect(location.position.y).toBeLessThanOrEqual(MAP_BOUNDS.maxY);
+      if (location.kind !== 'bar') {
+        expect(location.catalogName, `${location.id} needs a catalogue name`).toBeDefined();
+        catalogNames.push(location.catalogName!);
+      }
+    }
+    expect(duplicates(catalogNames)).toEqual([]);
+  });
 });
 
 describe('characters', () => {
-  it('live somewhere real with a sane starting relationship', () => {
+  it('live somewhere real with a sane starting relationship and drift', () => {
     for (const character of allCharacters) {
       expect(locationIds, `${character.id}: unknown home`).toContain(character.home);
       expect(character.initialRelationship).toBeGreaterThanOrEqual(0);
       expect(character.initialRelationship).toBeLessThanOrEqual(100);
+      expect(character.driftPerMonth).toBeGreaterThanOrEqual(0);
+      let lastDay = 0;
+      for (const move of character.moves ?? []) {
+        expect(move.day, `${character.id}: moves must be in order`).toBeGreaterThan(lastDay);
+        if (move.to !== null)
+          expect(locationIds, `${character.id}: unknown move`).toContain(move.to);
+        lastDay = move.day;
+      }
+    }
+  });
+
+  it('include the three close ones, each with a farewell scene at home', () => {
+    const closeOnes = allCharacters.filter((c) => CLOSE_ONE_ROLES.includes(c.role));
+    expect(closeOnes.map((c) => c.role).sort()).toEqual([...CLOSE_ONE_ROLES].sort());
+    for (const character of closeOnes) {
+      const farewell = allEvents.find(
+        (event) =>
+          event.character === character.id &&
+          event.location === character.home &&
+          event.availableFrom === 0,
+      );
+      expect(farewell, `${character.id} has no farewell scene`).toBeDefined();
+      expect(character.driftPerMonth, `${character.id} should fade when ignored`).toBeGreaterThan(
+        0,
+      );
     }
   });
 });
@@ -153,10 +263,13 @@ describe('jobs', () => {
     }
   });
 
-  it('never strand the player: every destination has an outgoing job', () => {
+  it('never strand the player: every dockable place has jobs in and out', () => {
     const origins = new Set(allJobs.map((job) => job.from));
-    for (const destination of new Set(allJobs.map((job) => job.to))) {
-      expect(origins, `no job departs from ${destination}`).toContain(destination);
+    const destinations = new Set(allJobs.map((job) => job.to));
+    for (const location of allLocations) {
+      if (location.kind === 'bar') continue;
+      expect(origins, `no job departs from ${location.id}`).toContain(location.id);
+      expect(destinations, `no job arrives at ${location.id}`).toContain(location.id);
     }
   });
 });
@@ -165,6 +278,9 @@ describe('events', () => {
   it('reference known IDs and have valid windows and choices', () => {
     for (const event of allEvents) {
       expect(locationIds, `${event.id}: unknown location`).toContain(event.location);
+      if (event.character !== undefined) {
+        expect(characterIds, `${event.id}: unknown character`).toContain(event.character);
+      }
       checkWindow(event, event.id);
       checkConditions(event.conditions, event.id);
       expect(event.choices.length, `${event.id}: needs at least one choice`).toBeGreaterThan(0);
@@ -172,6 +288,12 @@ describe('events', () => {
       for (const choice of event.choices) {
         checkConditions(choice.conditions, `${event.id}/${choice.id}`);
         checkEffects(choice.effects, `${event.id}/${choice.id}`);
+        for (const effect of choice.effects) {
+          expect(
+            journeyEffectKinds,
+            `${event.id}/${choice.id}: ${effect.kind} only belongs in activities`,
+          ).not.toContain(effect.kind);
+        }
       }
     }
   });
@@ -201,16 +323,61 @@ describe('events', () => {
         }
       }
     }
-    const gates = [
+    const flatten = (conditions: readonly Condition[]): Condition[] =>
+      conditions.flatMap((c) => (c.kind === 'anyOf' ? flatten(c.conditions) : [c]));
+    const gates = flatten([
       ...allEvents.flatMap((event) => event.conditions ?? []),
       ...allEvents.flatMap((event) => event.choices.flatMap((choice) => choice.conditions ?? [])),
       ...allJobs.flatMap((job) => job.conditions ?? []),
-    ];
+    ]);
     for (const condition of gates) {
       if (condition.kind === 'flagSet') {
         expect(settable, `nothing sets ${condition.flag}`).toContain(condition.flag);
       }
     }
+  });
+});
+
+describe('activities', () => {
+  it('take time, have valid effects, and only target close ones meaningfully', () => {
+    for (const activity of allActivities) {
+      expect(activity.durationDays, `${activity.id}: must take time`).toBeGreaterThan(0);
+      checkEffects(activity.effects, activity.id);
+      if (activity.target !== undefined) {
+        expect(activity.target.relationshipDelta).not.toBe(0);
+      } else {
+        expect(activity.effects.length, `${activity.id} does nothing`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('fit comfortably inside the shortest run', () => {
+    const shortest = Math.min(
+      ...allJobs.map((job) => {
+        const a = content.locations[job.from].position;
+        const b = content.locations[job.to].position;
+        return Math.ceil(Math.hypot(a.x - b.x, a.y - b.y));
+      }),
+    );
+    for (const activity of allActivities) {
+      expect(activity.durationDays, `${activity.id} is longer than the shortest run`).toBeLessThan(
+        shortest / 2,
+      );
+    }
+  });
+});
+
+describe('protagonist', () => {
+  it('has an intro that ends at the loan office, help text and a journal to fill', () => {
+    expect(introPages.length).toBeGreaterThanOrEqual(3);
+    for (const page of introPages) {
+      expect(page.title.length).toBeGreaterThan(0);
+      expect(page.paragraphs.length).toBeGreaterThan(0);
+    }
+    expect(introPages.at(-1)!.title).toMatch(/loan/i);
+    expect(howToPlay.length).toBeGreaterThan(3);
+    expect(journalPages.length).toBeGreaterThan(0);
+    expect(loanSignedLog).toContain('{name}');
   });
 });
 

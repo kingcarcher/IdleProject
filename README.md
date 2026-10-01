@@ -51,12 +51,23 @@ Key ideas:
   the state.
 - **Hybrid time.** Real time only passes during journeys, delivered as `TICK { deltaMs }`
   actions, so journeys can be simulated instantly in tests and pause when the tab is hidden.
-- **Declarative content.** Events, jobs, bulletins and upgrades are TypeScript data with
-  declarative `Condition`s and `Effect`s. IDs come from [src/content/ids.ts](src/content/ids.ts)
+- **Time dilation.** Each journey freezes a `msPerDay` at departure from `eraDilation(day)` in
+  [src/engine/journey.ts](src/engine/journey.ts): as the years pass, more in-game days go by per
+  real second, while ship upgrades cut in-game days. Every run lands in a 45 s–6 min real-time band.
+- **Ship's time.** While underway the player runs timed activities (maintenance, letters home,
+  study, journal) that complete on an exact in-game day inside the tick, so results never depend
+  on how ticks were split.
+- **People who fade.** Relationships carry a `lastContactDay`; the clock applies per-character
+  drift at every month boundary unless you wrote or visited. Characters have scheduled moves and
+  can be relocated (or lost) by events.
+- **Declarative content.** Events, jobs, bulletins, upgrades and activities are TypeScript data
+  with declarative `Condition`s and `Effect`s. IDs come from [src/content/ids.ts](src/content/ids.ts)
   so typos are compile errors; [src/content/content.test.ts](src/content/content.test.ts)
-  cross-checks every reference.
+  cross-checks every reference. Prose may use `{name}`, `{ship}` and `{target}` tokens.
 - **Versioned saves.** `SAVE_VERSION` plus a migration chain in
-  [src/engine/save.ts](src/engine/save.ts); saves live in `localStorage`.
+  [src/engine/save.ts](src/engine/save.ts); saves live in `localStorage`. Currently v2.
+- **Deterministic star map.** [src/ui/map/starfield.ts](src/ui/map/starfield.ts) seeds the
+  decorative specks and their catalogue names; nothing in the game uses `Math.random`.
 - **No router.** The screen is derived from `state.phase`, which avoids GitHub Pages 404s.
 
 ## Deploying

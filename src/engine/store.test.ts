@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobIds } from '@/content';
-import { createInitialState } from './state';
 import { createStore } from './store';
+import { startedState } from './testUtils';
 
 describe('store', () => {
   beforeEach(() => {
@@ -13,7 +13,7 @@ describe('store', () => {
   });
 
   it('notifies subscribers only when the state changes', () => {
-    const store = createStore(createInitialState());
+    const store = createStore(startedState());
     const listener = vi.fn();
     const unsubscribe = store.subscribe(listener);
 
@@ -31,7 +31,7 @@ describe('store', () => {
 
   it('autosaves at most once per interval and flushes on demand', () => {
     const persist = vi.fn();
-    const store = createStore(createInitialState(), { persist, persistIntervalMs: 1000 });
+    const store = createStore(startedState(), { persist, persistIntervalMs: 1000 });
 
     store.dispatch({ type: 'ACCEPT_JOB', jobId: JobIds.haldenToMeridian });
     store.dispatch({ type: 'TICK', deltaMs: 100 });

@@ -1,6 +1,12 @@
-import { allUpgrades, getUpgrade, type Credits, type UpgradeDef, type UpgradeId } from '@/content';
+import {
+  allUpgrades,
+  getUpgrade,
+  type Credits,
+  type GameDay,
+  type UpgradeDef,
+  type UpgradeId,
+} from '@/content';
 import { appendLog, type GameState, type Loan } from './state';
-import { DAYS_PER_MONTH, monthIndex } from './time';
 
 export const MAX_MISSED_PAYMENTS = 3;
 
@@ -51,48 +57,55 @@ export function processMonth(money: Credits, loan: Loan): MonthResult {
 }
 
 /**
- * Moves the calendar forward to `toDay`, settling the loan at every month boundary crossed.
- * Log entries are dated at the boundary itself, so the result does not depend on how the
- * span was split into ticks. Ends the game at the boundary where the bank forecloses.
+ * Settles the loan at one month boundary: interest, the automatic draft, and foreclosure.
+ * Log entries are dated at the boundary so results are independent of tick granularity.
  */
-export function advanceTo(state: GameState, toDay: number): GameState {
-  if (toDay <= state.day) return state;
-
-  const firstMonth = monthIndex(state.day) + 1;
-  const lastMonth = monthIndex(toDay);
-  let next: GameState = { ...state, day: toDay };
-
-  for (let month = firstMonth; month <= lastMonth; month += 1) {
-    const boundaryDay = month * DAYS_PER_MONTH;
-    const wasPaidOff = isLoanPaidOff(next.loan);
-    const result = processMonth(next.money, next.loan);
-    next = { ...next, money: result.money, loan: result.loan };
-    for (const note of result.notes) {
-      next = appendLog(next, note, boundaryDay);
-    }
-
-    if (isBankrupt(result.loan)) {
-      next = appendLog(
-        next,
-        'The bank has repossessed the ship. There is nothing left to haul.',
-        boundaryDay,
-      );
-      return { ...next, day: boundaryDay, phase: 'gameOver', gameOver: 'bankrupt', journey: null };
-    }
-    if (!wasPaidOff && isLoanPaidOff(result.loan)) {
-      next = appendLog(next, LOAN_PAID_OFF_TEXT, boundaryDay);
-    }
+export function settleMonth(state: GameState, boundaryDay: GameDay): GameState {
+  const wasPaidOff = isLoanPaidOff(state.loan);
+  const result = processMonth(state.money, state.loan);
+  let next: GameState = { ...state, money: result.money, loan: result.loan };
+  for (const note of result.notes) {
+    next = appendLog(next, note, boundaryDay);
   }
 
+  if (isBankrupt(result.loan)) {
+    next = appendLog(
+      next,
+      'The bank has repossessed the ship. There is nothing left to haul.',
+      boundaryDay,
+    );
+    return { ...next, day: boundaryDay, phase: 'gameOver', gameOver: 'bankrupt', journey: null };
+  }
+  if (!wasPaidOff && isLoanPaidOff(result.loan)) {
+    next = appendLog(next, LOAN_PAID_OFF_TEXT, boundaryDay);
+  }
   return next;
 }
 
 const LOAN_PAID_OFF_TEXT = 'The loan is paid off. The ship is finally yours.';
 
+/** The amount `payLoan` would actually move: whole credits, capped by cash and by what is owed. */
+export function clampPayment(state: GameState, amount: Credits): Credits {
+  const payment = Math.min(Math.floor(amount), state.money, state.loan.principal);
+  return Number.isFinite(payment) && payment > 0 ? payment : 0;
+}
+
+export type PaymentWarning = 'everything' | 'belowDraft';
+
+/** Why the player might want to think twice before an extra payment, if at all. */
+export function paymentWarning(state: GameState, amount: Credits): PaymentWarning | null {
+  const payment = clampPayment(state, amount);
+  if (payment <= 0) return null;
+  if (payment >= state.money) return 'everything';
+  const remaining = state.loan.principal - payment;
+  if (remaining > 0 && state.money - payment < state.loan.monthlyPayment) return 'belowDraft';
+  return null;
+}
+
 /** Manual extra payment; clamped to what the player has and what is still owed. */
 export function payLoan(state: GameState, amount: Credits): GameState {
-  const payment = Math.min(Math.floor(amount), state.money, state.loan.principal);
-  if (!Number.isFinite(payment) || payment <= 0) return state;
+  const payment = clampPayment(state, amount);
+  if (payment <= 0) return state;
 
   const loan = { ...state.loan, principal: state.loan.principal - payment };
   let next: GameState = { ...state, money: state.money - payment, loan };

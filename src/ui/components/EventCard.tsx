@@ -1,5 +1,5 @@
 import type { EventDef } from '@/content';
-import { conditionsMet } from '@/engine';
+import { conditionsMet, fillFromState } from '@/engine';
 import { useGame } from '../GameContext';
 import { ChoiceList } from './ChoiceList';
 
@@ -13,11 +13,11 @@ export function EventCard({ event }: EventCardProps) {
   return (
     <article className="event">
       <h3 className="event__title">{event.title}</h3>
-      <p className="event__text">{event.text}</p>
+      <p className="event__text">{fillFromState(state, event.text)}</p>
       <ChoiceList
         choices={event.choices.map((choice) => ({
           id: choice.id,
-          label: choice.label,
+          label: fillFromState(state, choice.label),
           disabled: !conditionsMet(state, choice.conditions),
         }))}
         onChoose={(choiceId) => dispatch({ type: 'RESOLVE_EVENT', eventId: event.id, choiceId })}

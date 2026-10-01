@@ -10,7 +10,9 @@ import {
   type GameDay,
   type TimeWindow,
 } from '@/content';
-import { appendLog, clampRelationship, getRelationship, hasFlag, type GameState } from './state';
+import { contact, daysSinceContact, relocate } from './relationships';
+import { appendLog, getRelationship, hasFlag, type GameState } from './state';
+import { fillFromState } from './text';
 
 export function isWithinWindow(window: TimeWindow, day: GameDay): boolean {
   return day >= window.availableFrom && day <= window.availableUntil;
@@ -28,12 +30,22 @@ export function evaluateCondition(state: GameState, condition: Condition): boole
       return !hasFlag(state, condition.flag);
     case 'relationshipAtLeast':
       return getRelationship(state, condition.character) >= condition.value;
+    case 'relationshipAtMost':
+      return getRelationship(state, condition.character) <= condition.value;
+    case 'daysSinceContactAtLeast': {
+      const days = daysSinceContact(state, condition.character);
+      return days === null || days >= condition.days;
+    }
     case 'moneyAtLeast':
       return state.money >= condition.amount;
     case 'eventCompleted':
       return state.completedEvents.includes(condition.event);
+    case 'eventNotCompleted':
+      return !state.completedEvents.includes(condition.event);
     case 'dateBetween':
       return state.day >= condition.from && state.day <= condition.until;
+    case 'anyOf':
+      return condition.conditions.some((inner) => evaluateCondition(state, inner));
   }
 }
 
@@ -67,26 +79,28 @@ export function availableBulletins(state: GameState): readonly BulletinDef[] {
   );
 }
 
+/**
+ * Applies one effect. Journey-only effects (`shortenJourney`, `deliveryBonus`, `journal`) are
+ * handled by the journey module and ignored here.
+ */
 export function applyEffect(state: GameState, effect: Effect): GameState {
   switch (effect.kind) {
     case 'money':
       return { ...state, money: state.money + effect.delta };
     case 'relationship':
-      return {
-        ...state,
-        relationships: {
-          ...state.relationships,
-          [effect.character]: clampRelationship(
-            getRelationship(state, effect.character) + effect.delta,
-          ),
-        },
-      };
+      return contact(state, effect.character, effect.delta);
     case 'setFlag':
       return hasFlag(state, effect.flag)
         ? state
         : { ...state, flags: [...state.flags, effect.flag] };
     case 'clearFlag':
       return { ...state, flags: state.flags.filter((flag) => flag !== effect.flag) };
+    case 'relocate':
+      return relocate(state, effect.character, effect.to);
+    case 'shortenJourney':
+    case 'deliveryBonus':
+    case 'journal':
+      return state;
   }
 }
 
@@ -103,6 +117,11 @@ export function resolveEvent(state: GameState, eventId: EventId, choiceId: strin
   if (choice === undefined || !conditionsMet(state, choice.conditions)) return state;
 
   let next = applyEffects(state, choice.effects);
+  // Any scene with someone counts as seeing them, even if no choice moved the relationship.
+  if (event.character !== undefined) next = contact(next, event.character, 0);
   next = { ...next, completedEvents: [...next.completedEvents, event.id] };
-  return appendLog(next, `${event.title} — ${choice.label} ${choice.outcomeText}`);
+  return appendLog(
+    next,
+    fillFromState(next, `${event.title} — ${choice.label} ${choice.outcomeText}`),
+  );
 }

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { CharacterIds, DEFAULT_NAME, JobIds, LocationIds } from '@/content';
+import { BASE_MS_PER_GAME_DAY } from './journey';
 import {
   createStorageAdapter,
   deserialize,
@@ -8,7 +10,8 @@ import {
   type Migration,
   type StorageLike,
 } from './save';
-import { createInitialState } from './state';
+import { createInitialState, getRelationshipState } from './state';
+import { startedState } from './testUtils';
 
 function fakeStorage(): StorageLike & { readonly data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -20,19 +23,73 @@ function fakeStorage(): StorageLike & { readonly data: Map<string, string> } {
   };
 }
 
+/** What a save looked like before the protagonist, activities and contact tracking existed. */
+const V1_SAVE = {
+  version: 1,
+  phase: 'journey',
+  day: 40,
+  money: 2400,
+  loan: { principal: 59700, monthlyInterestRate: 0.005, monthlyPayment: 600, missedPayments: 0 },
+  ship: { name: 'Threnody', baseSpeed: 1, upgrades: [] },
+  location: LocationIds.halden,
+  journey: {
+    jobId: JobIds.haldenToMeridian,
+    from: LocationIds.halden,
+    to: LocationIds.meridian,
+    departedOnDay: 0,
+    durationDays: 127,
+    elapsedMs: 40_500,
+  },
+  relationships: { [CharacterIds.bartender]: 45, [CharacterIds.ilse]: 10 },
+  flags: [],
+  completedEvents: ['evt.halden.bar.first-round'],
+  log: [{ day: 0, text: 'The ship is yours, on paper.' }],
+  gameOver: null,
+};
+
 describe('serialization', () => {
-  it('round-trips the initial state', () => {
-    const state = createInitialState();
-    expect(deserialize(serialize(state))).toEqual(state);
+  it('round-trips the initial and a started state', () => {
+    const fresh = createInitialState();
+    expect(deserialize(serialize(fresh))).toEqual(fresh);
+    const started = startedState('Juno');
+    expect(deserialize(serialize(started))).toEqual(started);
   });
 
   it('rejects garbage, non-objects and saves from newer builds', () => {
     expect(deserialize('not json')).toBeNull();
     expect(deserialize('42')).toBeNull();
-    expect(deserialize('{"version":1}')).toBeNull();
+    expect(deserialize('{"version":2}')).toBeNull();
     expect(
       deserialize(JSON.stringify({ ...createInitialState(), version: SAVE_VERSION + 1 })),
     ).toBeNull();
+  });
+
+  it('upgrades a v1 save in place, keeping its phase and progress', () => {
+    const loaded = deserialize(JSON.stringify(V1_SAVE));
+    expect(loaded).not.toBeNull();
+    expect(loaded!.version).toBe(SAVE_VERSION);
+    expect(loaded!.phase).toBe('journey');
+    expect(loaded!.day).toBe(40);
+    expect(loaded!.player.name).toBe(DEFAULT_NAME);
+    expect(loaded!.journey).toMatchObject({
+      jobId: JobIds.haldenToMeridian,
+      elapsedMs: 40_500,
+      msPerDay: BASE_MS_PER_GAME_DAY,
+      activity: null,
+      deliveryBonus: 0,
+    });
+    expect(getRelationshipState(loaded!, CharacterIds.bartender)).toEqual({
+      value: 45,
+      lastContactDay: null,
+    });
+    expect(getRelationshipState(loaded!, CharacterIds.partner)).toEqual({
+      value: 70,
+      lastContactDay: 0,
+    });
+    expect(loaded!.characters).toEqual({});
+    expect(loaded!.journalPagesRead).toBe(0);
+    // A migrated save round-trips unchanged.
+    expect(deserialize(serialize(loaded!))).toEqual(loaded);
   });
 });
 

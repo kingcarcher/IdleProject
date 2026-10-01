@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { UpgradeIds } from '@/content';
+import { advanceTo } from './clock';
 import {
-  advanceTo,
   buyUpgrade,
+  clampPayment,
   isBankrupt,
   MAX_MISSED_PAYMENTS,
   monthlyInterest,
   payLoan,
+  paymentWarning,
   processMonth,
 } from './economy';
-import { createInitialState, type Loan } from './state';
+import type { Loan } from './state';
+import { startedState } from './testUtils';
 import { DAYS_PER_MONTH } from './time';
 
 const loan: Loan = {
@@ -58,7 +61,7 @@ describe('loan', () => {
 
 describe('advanceTo', () => {
   it('settles one month per boundary crossed and dates the log at the boundary', () => {
-    const start = { ...createInitialState(), loan, money: 1000 };
+    const start = { ...startedState(), loan, money: 1000 };
     const next = advanceTo(start, DAYS_PER_MONTH * 2 + 5);
 
     expect(next.day).toBe(DAYS_PER_MONTH * 2 + 5);
@@ -69,13 +72,13 @@ describe('advanceTo', () => {
   });
 
   it('does nothing when time does not move forward', () => {
-    const start = createInitialState();
+    const start = startedState();
     expect(advanceTo(start, 0)).toBe(start);
     expect(advanceTo({ ...start, day: 10 }, 5).day).toBe(10);
   });
 
   it('ends the game at the boundary where the bank forecloses', () => {
-    const start = { ...createInitialState(), loan, money: 0 };
+    const start = { ...startedState(), loan, money: 0 };
     const next = advanceTo(start, DAYS_PER_MONTH * 12);
 
     expect(next.phase).toBe('gameOver');
@@ -87,7 +90,7 @@ describe('advanceTo', () => {
 
 describe('payLoan', () => {
   it('clamps extra payments to available money and remaining principal', () => {
-    const start = { ...createInitialState(), loan, money: 500 };
+    const start = { ...startedState(), loan, money: 500 };
 
     expect(payLoan(start, 800).money).toBe(0);
     expect(payLoan(start, 800).loan.principal).toBe(9500);
@@ -98,11 +101,44 @@ describe('payLoan', () => {
     expect(paid.loan.principal).toBe(0);
     expect(paid.log.at(-1)?.text).toMatch(/paid off/);
   });
+
+  it('accepts any whole number of credits, including round hundreds', () => {
+    const start = { ...startedState(), loan, money: 5000 };
+    expect(payLoan(start, 600).money).toBe(4400);
+    expect(payLoan(start, 700).money).toBe(4300);
+    expect(payLoan(start, 601.9).money).toBe(4399);
+    expect(clampPayment(start, 600)).toBe(600);
+    expect(clampPayment(start, 99_999)).toBe(5000);
+    expect(clampPayment(start, -5)).toBe(0);
+    expect(clampPayment(start, Number.NaN)).toBe(0);
+  });
+});
+
+describe('paymentWarning', () => {
+  const start = { ...startedState(), loan, money: 1000 };
+
+  it('warns when the payment takes everything, even if clamped', () => {
+    expect(paymentWarning(start, 1000)).toBe('everything');
+    expect(paymentWarning(start, 5000)).toBe('everything');
+  });
+
+  it('warns when less than one monthly draft would be left', () => {
+    expect(paymentWarning(start, 800)).toBe('belowDraft');
+    expect(paymentWarning(start, 701)).toBe('belowDraft');
+  });
+
+  it('stays quiet for comfortable payments, nothing, or paying off the loan', () => {
+    expect(paymentWarning(start, 700)).toBeNull();
+    expect(paymentWarning(start, 0)).toBeNull();
+    expect(paymentWarning(start, Number.NaN)).toBeNull();
+    const almostFree = { ...start, loan: { ...loan, principal: 900 } };
+    expect(paymentWarning(almostFree, 900)).toBeNull();
+  });
 });
 
 describe('buyUpgrade', () => {
   it('requires the upgrade to be on the market and affordable', () => {
-    const early = { ...createInitialState(), money: 100_000 };
+    const early = { ...startedState(), money: 100_000 };
     expect(buyUpgrade(early, UpgradeIds.driveCoils)).toBe(early);
 
     const poor = { ...early, day: 5000, money: 10 };

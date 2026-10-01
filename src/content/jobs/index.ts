@@ -1,6 +1,7 @@
 import { JobIds, LocationIds } from '../ids';
 import type { JobDef } from '../types';
 
+// Pay scales roughly with distance (about 30 cr per map unit) so long hauls are worth the years.
 export const jobs = [
   {
     id: JobIds.haldenToMeridian,
@@ -17,5 +18,138 @@ export const jobs = [
     from: LocationIds.meridian,
     to: LocationIds.halden,
     pay: 3500,
+  },
+  {
+    id: JobIds.haldenToVerge,
+    title: 'Survey stores to Verge',
+    description: 'Prefab habitat sections and a year of rations for the Verge survey crews.',
+    from: LocationIds.halden,
+    to: LocationIds.vergeOutpost,
+    pay: 8000,
+  },
+  {
+    id: JobIds.vergeToHalden,
+    title: 'Core samples to Halden',
+    description:
+      'Sealed geological cores for the Halden institute. Fragile, and nobody is in a hurry.',
+    from: LocationIds.vergeOutpost,
+    to: LocationIds.halden,
+    pay: 7500,
+  },
+  {
+    id: JobIds.meridianToVerge,
+    title: 'Reactor parts to Verge',
+    description:
+      'A replacement coolant loop for the outpost reactor. They have been waiting two years.',
+    from: LocationIds.meridian,
+    to: LocationIds.vergeOutpost,
+    pay: 11000,
+  },
+  {
+    id: JobIds.vergeToMeridian,
+    title: 'Ore concentrate to Meridian',
+    description:
+      'Twelve hundred tonnes of rare-earth concentrate bound for the Meridian refineries.',
+    from: LocationIds.vergeOutpost,
+    to: LocationIds.meridian,
+    pay: 10500,
+  },
+  {
+    id: JobIds.haldenToKestrel,
+    title: 'Seed stock to Kestrel Reach',
+    description: 'Cold-hardened seed stock for the new colony. Halden grain, of all things.',
+    from: LocationIds.halden,
+    to: LocationIds.kestrelReach,
+    pay: 10500,
+  },
+  {
+    id: JobIds.kestrelToHalden,
+    title: 'Fish protein to Halden',
+    description:
+      'Frozen protein blocks from the Kestrel farms. The first thing the colony has exported.',
+    from: LocationIds.kestrelReach,
+    to: LocationIds.halden,
+    pay: 10000,
+  },
+  {
+    id: JobIds.meridianToKestrel,
+    title: 'Colonists to Kestrel Reach',
+    description:
+      'Forty families in cold sleep and everything they own. The manifest lists them as cargo.',
+    from: LocationIds.meridian,
+    to: LocationIds.kestrelReach,
+    pay: 8500,
+  },
+  {
+    id: JobIds.kestrelToMeridian,
+    title: 'Desalination units to Meridian',
+    description: 'Kestrel-built desalination units. The colony is starting to sell what it knows.',
+    from: LocationIds.kestrelReach,
+    to: LocationIds.meridian,
+    pay: 8000,
+  },
+  {
+    id: JobIds.haldenToTarsis,
+    title: 'Soil to Tarsis Ring',
+    description: 'Actual topsoil, by the tonne, for the ring gardens. Halden has plenty to spare.',
+    from: LocationIds.halden,
+    to: LocationIds.tarsisRing,
+    pay: 12000,
+  },
+  {
+    id: JobIds.tarsisToHalden,
+    title: 'Fabricated alloys to Halden',
+    description: 'Zero-gravity alloys for the Halden shipyards that did not exist when you left.',
+    from: LocationIds.tarsisRing,
+    to: LocationIds.halden,
+    pay: 11500,
+  },
+  {
+    id: JobIds.vergeToTarsis,
+    title: 'Helium-3 to Tarsis Ring',
+    description: 'Fuel skimmed from the Verge gas giants for the ring reactors.',
+    from: LocationIds.vergeOutpost,
+    to: LocationIds.tarsisRing,
+    pay: 10000,
+  },
+  {
+    id: JobIds.tarsisToVerge,
+    title: 'Habitat modules to Verge',
+    description: 'Ring-built habitat modules to turn the outpost into a town.',
+    from: LocationIds.tarsisRing,
+    to: LocationIds.vergeOutpost,
+    pay: 9500,
+  },
+  {
+    id: JobIds.haldenToLongShore,
+    title: 'Everything to Long Shore',
+    description: 'Household goods, furniture, pets in stasis. People are moving there for good.',
+    from: LocationIds.halden,
+    to: LocationIds.longShore,
+    pay: 15000,
+  },
+  {
+    id: JobIds.longShoreToHalden,
+    title: 'Luxury goods to Halden',
+    description: 'Wine, real wood, printed books. Halden has money now, apparently.',
+    from: LocationIds.longShore,
+    to: LocationIds.halden,
+    pay: 14000,
+  },
+  {
+    id: JobIds.kestrelToLongShore,
+    title: 'Marine stock to Long Shore',
+    description: 'Kestrel fish stock to seed the new coastline.',
+    from: LocationIds.kestrelReach,
+    to: LocationIds.longShore,
+    pay: 13500,
+  },
+  {
+    id: JobIds.longShoreToKestrel,
+    title: 'Medical supplies to Kestrel Reach',
+    description: 'A hospital in crates. Kestrel Reach is old enough now to need one.',
+    from: LocationIds.longShore,
+    to: LocationIds.kestrelReach,
+    pay: 13000,
   },
 ] as const satisfies readonly JobDef[];

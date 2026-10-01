@@ -1,3 +1,5 @@
+import { allCharacters, CLOSE_ONE_ROLES, DEFAULT_NAME } from '@/content';
+import { BASE_MS_PER_GAME_DAY } from './journey';
 import { STATE_VERSION, type GameState } from './state';
 
 /** Bump this and add a migration whenever the shape of `GameState` changes. */
@@ -9,7 +11,32 @@ type RawSave = Record<string, unknown> & { version: number };
 /** Transforms a save from version N to version N+1. Keyed by N. */
 export type Migration = (raw: RawSave) => Record<string, unknown>;
 
-export const MIGRATIONS: Readonly<Record<number, Migration>> = {};
+export const MIGRATIONS: Readonly<Record<number, Migration>> = {
+  // v1 -> v2: named protagonist, relationship contact tracking, character whereabouts,
+  // journey pacing/activities, journal. Existing saves keep their phase and skip the intro.
+  1: (raw) => {
+    const oldRelationships = isRecord(raw.relationships) ? raw.relationships : {};
+    const relationships: Record<string, unknown> = {};
+    for (const character of allCharacters) {
+      const value = oldRelationships[character.id];
+      relationships[character.id] = {
+        value: typeof value === 'number' ? value : character.initialRelationship,
+        lastContactDay: CLOSE_ONE_ROLES.includes(character.role) ? 0 : null,
+      };
+    }
+    const journey = isRecord(raw.journey)
+      ? { ...raw.journey, msPerDay: BASE_MS_PER_GAME_DAY, activity: null, deliveryBonus: 0 }
+      : null;
+    return {
+      ...raw,
+      player: { name: DEFAULT_NAME },
+      relationships,
+      characters: {},
+      journey,
+      journalPagesRead: 0,
+    };
+  },
+};
 
 export function serialize(state: GameState): string {
   return JSON.stringify(state);
@@ -46,23 +73,26 @@ export function deserialize(json: string): GameState | null {
 }
 
 function isRawSave(value: unknown): value is RawSave {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { version?: unknown }).version === 'number'
-  );
+  return isRecord(value) && typeof value.version === 'number';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function looksLikeGameState(value: RawSave): value is RawSave & GameState {
   return (
     typeof value.phase === 'string' &&
+    isRecord(value.player) &&
+    typeof value.player.name === 'string' &&
     typeof value.day === 'number' &&
     typeof value.money === 'number' &&
     typeof value.location === 'string' &&
-    typeof value.loan === 'object' &&
-    value.loan !== null &&
-    typeof value.ship === 'object' &&
-    value.ship !== null &&
+    isRecord(value.loan) &&
+    isRecord(value.ship) &&
+    isRecord(value.relationships) &&
+    isRecord(value.characters) &&
+    typeof value.journalPagesRead === 'number' &&
     Array.isArray(value.flags) &&
     Array.isArray(value.completedEvents) &&
     Array.isArray(value.log)
